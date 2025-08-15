@@ -1,2 +1,3 @@
-# sales-forecast-streamlit
-A machine learning project that predicts future sales using past data. Includes data preprocessing, feature engineering (lags, rolling averages), Ridge regression modeling, evaluation against a naive baseline, and an optional Streamlit app for interactive forecasts. Portfolio-ready with visuals, metrics, and clean documentation.
+# Sales Forecast Streamlit App
+
+A project to predict future sales using past data with feature engineering and Ridge regression. Optional Streamlit app included.
