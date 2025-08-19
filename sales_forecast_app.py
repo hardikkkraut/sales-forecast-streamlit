@@ -32,10 +32,21 @@ st.markdown("""
         text-align: center;
     }
     .metric-card {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
         padding: 1rem;
         border-radius: 10px;
         border-left: 5px solid #667eea;
+        color: white;
+    }
+    .metric-card h4 {
+        color: #f0f0f0;
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+    }
+    .metric-card h2 {
+        color: #ffffff;
+        font-weight: 700;
+        margin: 0;
     }
     .stTabs [data-baseweb="tab-list"] {
         gap: 24px;
@@ -58,28 +69,17 @@ class AdvancedSalesForecaster:
             'Linear Regression': LinearRegression(),
         }
         self.scaler = StandardScaler()
-        
+        self.feature_names = None  # store features used for training
+
     def generate_sample_data(self, start_date, periods, trend_strength=1.0, seasonality_strength=0.3, noise_level=0.1):
-        """Generate realistic sample sales data with trend, seasonality, and noise"""
         dates = pd.date_range(start=start_date, periods=periods, freq='D')
-        
-        # Base trend
         trend = np.linspace(1000, 1000 + trend_strength * 500, periods)
-        
-        # Seasonal patterns (weekly and monthly)
         weekly_season = 200 * np.sin(2 * np.pi * np.arange(periods) / 7) * seasonality_strength
         monthly_season = 300 * np.sin(2 * np.pi * np.arange(periods) / 30) * seasonality_strength
-        
-        # Holiday effects (random spikes)
         holiday_effects = np.random.choice([0, 0, 0, 0, 500], periods, p=[0.7, 0.1, 0.1, 0.05, 0.05])
-        
-        # Noise
         noise = np.random.normal(0, 100 * noise_level, periods)
-        
-        # Combine all components
         sales = trend + weekly_season + monthly_season + holiday_effects + noise
-        sales = np.maximum(sales, 0)  # Ensure non-negative sales
-        
+        sales = np.maximum(sales, 0)
         return pd.DataFrame({
             'date': dates,
             'sales': sales,
@@ -88,36 +88,29 @@ class AdvancedSalesForecaster:
             'month': dates.month,
             'is_weekend': (dates.dayofweek >= 5).astype(int)
         })
-    
+
     def create_features(self, df):
-        """Create additional features for modeling"""
         df = df.copy()
         df['sales_lag_1'] = df['sales'].shift(1)
         df['sales_lag_7'] = df['sales'].shift(7)
         df['sales_ma_7'] = df['sales'].rolling(window=7).mean()
         df['sales_ma_30'] = df['sales'].rolling(window=30).mean()
-        
-        # Trend feature
         df['trend'] = np.arange(len(df))
-        
-        # Cyclical features
         df['sin_day'] = np.sin(2 * np.pi * df['day_of_month'] / 30)
         df['cos_day'] = np.cos(2 * np.pi * df['day_of_month'] / 30)
         df['sin_week'] = np.sin(2 * np.pi * df['day_of_week'] / 7)
         df['cos_week'] = np.cos(2 * np.pi * df['day_of_week'] / 7)
-        
         return df.dropna()
-    
+
     def prepare_data(self, df, target_col='sales'):
-        """Prepare data for modeling"""
         feature_cols = [col for col in df.columns if col not in [target_col, 'date']]
         X = df[feature_cols]
         y = df[target_col]
         return X, y
-    
+
     def train_models(self, X_train, y_train):
-        """Train all models"""
         trained_models = {}
+        self.feature_names = list(X_train.columns)
         for name, model in self.models.items():
             if name == 'Linear Regression':
                 X_scaled = self.scaler.fit_transform(X_train)
@@ -126,30 +119,27 @@ class AdvancedSalesForecaster:
                 model.fit(X_train, y_train)
             trained_models[name] = model
         return trained_models
-    
+
     def predict(self, model_name, model, X_test):
-        """Make predictions"""
+        # align feature order and fill missing columns
+        X_test = X_test.copy()
+        for col in self.feature_names:
+            if col not in X_test:
+                X_test[col] = 0
+        X_test = X_test[self.feature_names]
         if model_name == 'Linear Regression':
             X_scaled = self.scaler.transform(X_test)
             return model.predict(X_scaled)
         else:
             return model.predict(X_test)
-    
+
     def calculate_metrics(self, y_true, y_pred):
-        """Calculate evaluation metrics"""
         mae = mean_absolute_error(y_true, y_pred)
         mse = mean_squared_error(y_true, y_pred)
         rmse = np.sqrt(mse)
         r2 = r2_score(y_true, y_pred)
-        mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
-        
-        return {
-            'MAE': mae,
-            'MSE': mse,
-            'RMSE': rmse,
-            'R²': r2,
-            'MAPE': mape
-        }
+        mape = np.mean(np.abs((y_true - y_pred) / np.maximum(y_true, 1e-8))) * 100  # Avoid division by zero
+        return {'MAE': mae, 'MSE': mse, 'RMSE': rmse, 'R²': r2, 'MAPE': mape}
 
 def main():
     # Header
@@ -181,6 +171,8 @@ def main():
     # Generate or upload data
     data_source = st.sidebar.radio("Data Source", ["Generate Sample Data", "Upload CSV"])
     
+    df = None
+    
     if data_source == "Generate Sample Data":
         start_date = st.sidebar.date_input("Start Date", datetime.now() - timedelta(days=data_periods))
         
@@ -198,18 +190,35 @@ def main():
     else:
         uploaded_file = st.sidebar.file_uploader("Upload CSV", type=['csv'])
         if uploaded_file:
-            df = pd.read_csv(uploaded_file)
-            df['date'] = pd.to_datetime(df['date'])
+            try:
+                df = pd.read_csv(uploaded_file)
+                df['date'] = pd.to_datetime(df['date'])
+                # Add required columns if not present
+                if 'day_of_week' not in df.columns:
+                    df['day_of_week'] = df['date'].dt.dayofweek
+                if 'day_of_month' not in df.columns:
+                    df['day_of_month'] = df['date'].dt.day
+                if 'month' not in df.columns:
+                    df['month'] = df['date'].dt.month
+                if 'is_weekend' not in df.columns:
+                    df['is_weekend'] = (df['date'].dt.dayofweek >= 5).astype(int)
+            except Exception as e:
+                st.error(f"Error reading CSV file: {str(e)}")
+                return
         else:
             st.warning("Please upload a CSV file with 'date' and 'sales' columns.")
             return
+    
+    if df is None:
+        st.error("No data available. Please generate sample data or upload a CSV file.")
+        return
     
     # Main content tabs
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Data Overview", "🤖 Model Training", "📈 Forecasting", "🎯 Advanced Analytics"])
     
     with tab1:
         st.header("📊 Data Overview & Exploration")
-        
+
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.markdown("""
@@ -218,7 +227,7 @@ def main():
                 <h2>{}</h2>
             </div>
             """.format(len(df)), unsafe_allow_html=True)
-        
+
         with col2:
             st.markdown("""
             <div class="metric-card">
@@ -226,7 +235,7 @@ def main():
                 <h2>${:,.0f}</h2>
             </div>
             """.format(df['sales'].mean()), unsafe_allow_html=True)
-        
+
         with col3:
             st.markdown("""
             <div class="metric-card">
@@ -234,7 +243,7 @@ def main():
                 <h2>${:,.0f}</h2>
             </div>
             """.format(df['sales'].max()), unsafe_allow_html=True)
-        
+
         with col4:
             st.markdown("""
             <div class="metric-card">
@@ -242,7 +251,7 @@ def main():
                 <h2>${:,.0f}</h2>
             </div>
             """.format(df['sales'].std()), unsafe_allow_html=True)
-        
+
         # Time series plot
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -283,12 +292,24 @@ def main():
         
         # Prepare data for modeling
         df_features = forecaster.create_features(df)
+        if len(df_features) == 0:
+            st.error("Not enough data after feature creation. Please use more data points.")
+            return
+            
         X, y = forecaster.prepare_data(df_features)
         
         # Train-test split
         split_idx = int(len(df_features) * (1 - test_size/100))
+        if split_idx <= 0 or split_idx >= len(df_features):
+            st.error("Invalid train-test split. Please adjust the test size.")
+            return
+            
         X_train, X_test = X[:split_idx], X[split_idx:]
         y_train, y_test = y[:split_idx], y[split_idx:]
+        
+        if len(X_train) == 0 or len(X_test) == 0:
+            st.error("Insufficient data for train-test split. Please use more data points or adjust test size.")
+            return
         
         # Train models
         trained_models = forecaster.train_models(X_train, y_train)
@@ -298,9 +319,17 @@ def main():
         predictions = {}
         
         for name, model in trained_models.items():
-            y_pred = forecaster.predict(name, model, X_test)
-            predictions[name] = y_pred
-            model_results[name] = forecaster.calculate_metrics(y_test, y_pred)
+            try:
+                y_pred = forecaster.predict(name, model, X_test)
+                predictions[name] = y_pred
+                model_results[name] = forecaster.calculate_metrics(y_test, y_pred)
+            except Exception as e:
+                st.error(f"Error with {name} model: {str(e)}")
+                continue
+        
+        if not model_results:
+            st.error("No models could be trained successfully.")
+            return
         
         # Display results
         st.subheader("Model Performance Comparison")
@@ -311,7 +340,8 @@ def main():
         # Prediction vs Actual plot
         fig_pred = go.Figure()
         
-        test_dates = df['date'][split_idx:].values
+        test_dates = df['date'].iloc[split_idx : split_idx + len(X_test)].values
+
         
         fig_pred.add_trace(go.Scatter(
             x=test_dates, 
@@ -342,6 +372,10 @@ def main():
     
     with tab3:
         st.header("📈 Sales Forecasting")
+        
+        if 'trained_models' not in locals() or not model_results:
+            st.error("Please train models first in the Model Training tab.")
+            return
         
         # Select best model based on R²
         best_model_name = max(model_results.keys(), key=lambda x: model_results[x]['R²'])
@@ -405,28 +439,29 @@ def main():
         ))
         
         # Add confidence intervals (simplified)
-        prediction_std = np.std(y_test - predictions[best_model_name])
-        upper_bound = future_predictions + 1.96 * prediction_std
-        lower_bound = future_predictions - 1.96 * prediction_std
-        
-        fig_forecast.add_trace(go.Scatter(
-            x=future_dates,
-            y=upper_bound,
-            fill=None,
-            mode='lines',
-            line_color='rgba(0,0,0,0)',
-            showlegend=False
-        ))
-        
-        fig_forecast.add_trace(go.Scatter(
-            x=future_dates,
-            y=lower_bound,
-            fill='tonexty',
-            mode='lines',
-            line_color='rgba(0,0,0,0)',
-            name='Confidence Interval',
-            fillcolor='rgba(241, 143, 1, 0.2)'
-        ))
+        if best_model_name in predictions:
+            prediction_std = np.std(y_test - predictions[best_model_name])
+            upper_bound = future_predictions + 1.96 * prediction_std
+            lower_bound = np.maximum(future_predictions - 1.96 * prediction_std, 0)
+            
+            fig_forecast.add_trace(go.Scatter(
+                x=future_dates,
+                y=upper_bound,
+                fill=None,
+                mode='lines',
+                line_color='rgba(0,0,0,0)',
+                showlegend=False
+            ))
+            
+            fig_forecast.add_trace(go.Scatter(
+                x=future_dates,
+                y=lower_bound,
+                fill='tonexty',
+                mode='lines',
+                line_color='rgba(0,0,0,0)',
+                name='Confidence Interval',
+                fillcolor='rgba(241, 143, 1, 0.2)'
+            ))
         
         fig_forecast.update_layout(
             title=f"Sales Forecast - Next {forecast_days} Days",
@@ -454,9 +489,11 @@ def main():
         forecast_df = pd.DataFrame({
             'date': future_dates,
             'predicted_sales': future_predictions,
-            'lower_bound': lower_bound,
-            'upper_bound': upper_bound
         })
+        
+        if best_model_name in predictions:
+            forecast_df['lower_bound'] = lower_bound
+            forecast_df['upper_bound'] = upper_bound
         
         csv = forecast_df.to_csv(index=False)
         st.download_button(
@@ -468,6 +505,10 @@ def main():
     
     with tab4:
         st.header("🎯 Advanced Analytics")
+        
+        if 'trained_models' not in locals():
+            st.error("Please train models first in the Model Training tab.")
+            return
         
         # Feature importance (for Random Forest)
         if 'Random Forest' in trained_models:
@@ -493,11 +534,12 @@ def main():
         
         with col1:
             # Monthly trends
-            df['month_name'] = df['date'].dt.month_name()
-            monthly_avg = df.groupby('month_name')['sales'].mean().reindex([
+            df_copy = df.copy()
+            df_copy['month_name'] = df_copy['date'].dt.month_name()
+            monthly_avg = df_copy.groupby('month_name')['sales'].mean().reindex([
                 'January', 'February', 'March', 'April', 'May', 'June',
                 'July', 'August', 'September', 'October', 'November', 'December'
-            ])
+            ]).dropna()
             
             fig_monthly = px.line(
                 x=monthly_avg.index, 
@@ -509,9 +551,10 @@ def main():
         
         with col2:
             # Sales volatility over time
-            df['sales_volatility'] = df['sales'].rolling(window=30).std()
+            df_vol = df.copy()
+            df_vol['sales_volatility'] = df_vol['sales'].rolling(window=30).std()
             fig_vol = px.line(
-                df, 
+                df_vol, 
                 x='date', 
                 y='sales_volatility',
                 title="Sales Volatility (30-day Rolling Std)"
@@ -521,15 +564,16 @@ def main():
         
         # Correlation heatmap
         st.subheader("Feature Correlation Analysis")
-        corr_matrix = df_features.select_dtypes(include=[np.number]).corr()
-        
-        fig_corr = px.imshow(
-            corr_matrix,
-            title="Feature Correlation Heatmap",
-            color_continuous_scale="RdBu",
-            aspect="auto"
-        )
-        st.plotly_chart(fig_corr, use_container_width=True)
+        if 'df_features' in locals():
+            corr_matrix = df_features.select_dtypes(include=[np.number]).corr()
+            
+            fig_corr = px.imshow(
+                corr_matrix,
+                title="Feature Correlation Heatmap",
+                color_continuous_scale="RdBu",
+                aspect="auto"
+            )
+            st.plotly_chart(fig_corr, use_container_width=True)
 
 if __name__ == "__main__":
     main()
