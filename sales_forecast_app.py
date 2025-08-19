@@ -49,15 +49,19 @@ st.markdown("""
         margin: 0;
     }
     .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
+        gap: 20px;
     }
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
-        background-color: #f0f2f6;
-        border-radius: 10px;
-        color: #262730;
-        font-weight: 600;
+        background-color: #1e1e2f;
+        color: #bbbbbb;
+        border-radius: 8px 8px 0px 0px;
+        padding: 8px 16px;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #6a11cb !important;
+        color: white !important;
+        font-weight: bold;
+        border-bottom: 3px solid #2575fc;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -213,9 +217,15 @@ def main():
         st.error("No data available. Please generate sample data or upload a CSV file.")
         return
     
-    # Main content tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Data Overview", "🤖 Model Training", "📈 Forecasting", "🎯 Advanced Analytics"])
+    # Create tabs - MOVED INSIDE main() function
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 Data Overview", 
+        "🤖 Model Training", 
+        "📈 Forecasting", 
+        "🎯 Advanced Analytics"
+    ])
     
+    # TAB 1: Data Overview
     with tab1:
         st.header("📊 Data Overview & Exploration")
 
@@ -287,6 +297,7 @@ def main():
             fig_dow.update_traces(marker_color='#764ba2')
             st.plotly_chart(fig_dow, use_container_width=True)
     
+    # TAB 2: Model Training
     with tab2:
         st.header("🤖 Model Training & Evaluation")
         
@@ -331,6 +342,15 @@ def main():
             st.error("No models could be trained successfully.")
             return
         
+        # Store in session state for other tabs
+        st.session_state.trained_models = trained_models
+        st.session_state.model_results = model_results
+        st.session_state.predictions = predictions
+        st.session_state.X = X
+        st.session_state.y = y
+        st.session_state.y_test = y_test
+        st.session_state.df_features = df_features
+        
         # Display results
         st.subheader("Model Performance Comparison")
         
@@ -341,7 +361,6 @@ def main():
         fig_pred = go.Figure()
         
         test_dates = df['date'].iloc[split_idx : split_idx + len(X_test)].values
-
         
         fig_pred.add_trace(go.Scatter(
             x=test_dates, 
@@ -370,12 +389,18 @@ def main():
         )
         st.plotly_chart(fig_pred, use_container_width=True)
     
+    # TAB 3: Forecasting
     with tab3:
         st.header("📈 Sales Forecasting")
         
-        if 'trained_models' not in locals() or not model_results:
+        if 'trained_models' not in st.session_state or 'model_results' not in st.session_state:
             st.error("Please train models first in the Model Training tab.")
             return
+        
+        trained_models = st.session_state.trained_models
+        model_results = st.session_state.model_results
+        predictions = st.session_state.predictions
+        y_test = st.session_state.y_test
         
         # Select best model based on R²
         best_model_name = max(model_results.keys(), key=lambda x: model_results[x]['R²'])
@@ -503,12 +528,17 @@ def main():
             mime="text/csv"
         )
     
+    # TAB 4: Advanced Analytics
     with tab4:
         st.header("🎯 Advanced Analytics")
         
-        if 'trained_models' not in locals():
+        if 'trained_models' not in st.session_state:
             st.error("Please train models first in the Model Training tab.")
             return
+        
+        trained_models = st.session_state.trained_models
+        X = st.session_state.X
+        df_features = st.session_state.df_features
         
         # Feature importance (for Random Forest)
         if 'Random Forest' in trained_models:
@@ -564,16 +594,15 @@ def main():
         
         # Correlation heatmap
         st.subheader("Feature Correlation Analysis")
-        if 'df_features' in locals():
-            corr_matrix = df_features.select_dtypes(include=[np.number]).corr()
-            
-            fig_corr = px.imshow(
-                corr_matrix,
-                title="Feature Correlation Heatmap",
-                color_continuous_scale="RdBu",
-                aspect="auto"
-            )
-            st.plotly_chart(fig_corr, use_container_width=True)
+        corr_matrix = df_features.select_dtypes(include=[np.number]).corr()
+        
+        fig_corr = px.imshow(
+            corr_matrix,
+            title="Feature Correlation Heatmap",
+            color_continuous_scale="RdBu",
+            aspect="auto"
+        )
+        st.plotly_chart(fig_corr, use_container_width=True)
 
 if __name__ == "__main__":
     main()
