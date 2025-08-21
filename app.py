@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
-from model import AdvancedSalesForecaster
-from utils import create_custom_css, create_metric_card, create_forecast_visualization
+from model_file import AdvancedSalesForecaster
+from utils_file import create_custom_css, create_metric_card, create_forecast_visualization
 
 # Set page config
 st.set_page_config(
