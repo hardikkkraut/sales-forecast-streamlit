@@ -1,6 +1,6 @@
 # 🚀 Advanced Sales Forecaster
 
-A comprehensive sales forecasting application built with Streamlit that provides multi-model predictions, advanced analytics, and interactive visualizations.
+A comprehensive sales forecasting application built with Streamlit that provides multi-model predictions, advanced analytics,and interactive visualizations.
 
 ## 📁 Project Structure
 
